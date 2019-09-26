@@ -174,56 +174,42 @@ if __name__ == '__main__':
     hostname = '192.168.54.224'
     username = 'redaptive'
     root_username = 'root'
-
-    # Secrets should be captured and temporarily stored by the calling module as apposed to hard coding.
-    password = 'xXxXxXxXxXxXx'  # getpass(prompt=f'Enter password for \'{username}\' user: ')  # 'xXxXxXxXxXxXx'  #
-    root_password = 'test'  # getpass(prompt=f'Enter password for the \"{root_username}\" user: ')  # 'test'  #
-
-    # (ssh_result, resulting_config) = root_ssh_access(hostname, username, password, root_password, True)
-    # print(f'Return Status: {ssh_result}')
-    # if resulting_config:
-    #     print('Current root login setting in ssh config file:  {0}\n'.format(resulting_config[-1].decode('utf-8')))
-
-    # scp_result = file_transfer(hostname, root_username, root_password, 'test_scp_file.txt', '/tmp/test.txt')
-    # if scp_result:
-    #     print(f'File transfer result: {scp_result}')
-
-
+    password = getpass(prompt=f'Enter password for the \'{username}\' user: ')
+    root_password = getpass(prompt=f'Enter password for the \"{root_username}\" user: ')
 
     # Until we are done interacting with the meters, lets keep the app running and the credentials stored locally.
-    # try:
-    #     while True:
-    #         ssh.connect(hostname, 22, username, password)
-    #         # Example enabling root ssh access on a given meter.
-    #         print(f'Unocking ssh on {hostname}...')
-    #         (ssh_result, resulting_config) = root_ssh_access(ssh, root_password, True)
-    #
-    #         # The return values include a boolean representing whether the target meters root ssh access is currently
-    #         # in the requested state, and a list containing the lines of the current ssh config file.
-    #         print(f'Return Status: {ssh_result}')
-    #         print('Current root login setting in ssh config file:  {0}\n'.format(resulting_config[-1].decode('utf-8')))
-    #
-    #         # Send files and run remote commands
-    #         if '#' not in resulting_config[-1].decode('utf-8'):
-    #             # Configure our ssh client to use the root user and password.
-    #             ssh.connect(hostname, 22, root_username, root_password)
-    #
-    #             try:
-    #                 scp_result = file_transfer(ssh, 'test_scp_file.txt', '/tmp/testFile.txt')
-    #                 print(f'scp result: {scp_result}')
-    #             except Exception as e:
-    #                 print(f'There was an exception while sending files!\n{e}')
-    #             else:
-    #                 print(f'Locking down ssh on {hostname}...')
-    #                 (ssh_result, resulting_config) = root_ssh_access(ssh, root_password)
-    #                 print(f'Return Status: {ssh_result}')
-    #                 print('Current root login setting in ssh config file:  {0}\n'.format(resulting_config[-1].decode('utf-8')))
-    #             finally:
-    #                 resp = input('\nDo you want to process another meter? [y|n]: ')
-    #                 if resp != 'y':
-    #                     print('Exiting...')
-    #                     sys.exit(0)
-    #
-    # except KeyboardInterrupt:
-    #     print('Exiting...')
-    #     sys.exit(0)
+    try:
+        while True:
+            # Example enabling root ssh access on a given meter.
+            print(f'Unocking ssh on {hostname}...')
+            (ssh_result, resulting_config) = root_ssh_access(hostname, username, password, root_password, True)
+
+            if ssh_result:
+                current_config = resulting_config[-1].decode('utf-8')
+                print(f'Unlocked root ssh:  {current_config}')
+                print(f'Transferring file(s) to meter @{hostname}')
+                scp_result = file_transfer(hostname, root_username, root_password, 'test_scp_file.txt', '/tmp/test.txt')
+                if scp_result:
+                    print(f'File transfer succeeded!')
+                else:
+                    print(f'File transfer failed.')
+            else:
+                print(f'Failed to unlock {hostname}.')
+
+            print(f'Locking down ssh on {hostname}...')
+            (ssh_result, resulting_config) = root_ssh_access(hostname, root_username, root_password)
+
+            if not ssh_result:
+                current_config = resulting_config[-1].decode('utf-8')
+                print(f'Failed to lock down ssh access on {hostname}!')
+                print(f'The current ssh config includes the following line:\n{current_config}')
+                print('You may want to try re-running the enable/disable process again.')
+
+            resp = input('\nDo you want to process another meter? [y|n]: ')
+            if resp != 'y':
+                print('Exiting...')
+                sys.exit(0)
+
+    except KeyboardInterrupt:
+        print('Exiting...')
+        sys.exit(0)
