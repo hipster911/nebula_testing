@@ -4,10 +4,12 @@
 __version__ = '0.1'
 __version_info__ = (0, 1)
 __author__ = 'SuicidalLabRat <suicidallabrat@gmail.com>'
-
+from gooey import Gooey
+from gooey import GooeyParser
+from colored import stylize, attr, fg
 import sys
 from time import sleep
-from getpass import getpass
+# from getpass import getpass
 
 # Import 3rd party modules
 # noinspection PyBroadException
@@ -59,10 +61,13 @@ def root_ssh_access(hname, uname, passwd, rpasswd=None, enable=False, port=22, t
         try:
             ssh_client.connect(hname, port, uname, passwd)
         except ssh_exception.AuthenticationException:
-            print(f'\n!!! AuthenticationError: Authentication failed logging into {hostname} !!!\n')
+            print(f'!!! AuthenticationError: Authentication failed logging into {hname} !!!\n')
             return False, None
         except ssh_exception.NoValidConnectionsError:
-            print(f'!!! ConnectionError: Unable to connect to port 22 on {hostname} !!!\n')
+            print(f'!!! ConnectionError: Unable to connect to port 22 on {hname} !!!')
+            return False, None
+        except TimeoutError:
+            print(f'!!! Timed out trying to connect to {hname} !!!')
             return False, None
         else:
             channel = ssh_client.invoke_shell()
@@ -78,7 +83,7 @@ def root_ssh_access(hname, uname, passwd, rpasswd=None, enable=False, port=22, t
                 sleep(1)
             output = channel.recv(1024).decode('utf-8')
             if 'failure' in output:
-                print('\n!!!  AuthenticationError: su command failed with authentication error !!!\n')
+                print('!!! AuthenticationError: su command failed with authentication error !!!')
             else:
                 channel.send(f'echo \"{dropbear_conf}\" > {dropbear_conf_path}\n')
                 while not channel.recv_ready():
@@ -92,7 +97,7 @@ def root_ssh_access(hname, uname, passwd, rpasswd=None, enable=False, port=22, t
                 sleep(1)
             output = channel.recv(1024).decode('utf-8')
             if 'denied' in output:
-                print(f'\n!!! IOError: Permission denied writing to {dropbear_conf_path} !!!\n')
+                print(f'!!! IOError: Permission denied writing to {dropbear_conf_path} !!!')
 
         channel.send(f'cat {dropbear_conf_path}\n')
         while not channel.recv_ready():
@@ -135,10 +140,10 @@ def file_transfer(hname, uname, passwd, local_path, remote_path, put_file=True, 
         try:
             ssh_client.connect(hname, port, uname, passwd)
         except ssh_exception.AuthenticationException:
-            print(f'\n!!! AuthenticationError: Authentication failed logging into {hostname} !!!\n')
+            print(f'!!! AuthenticationError: Authentication failed logging into {hname} !!!\n')
             return False
         except ssh_exception.NoValidConnectionsError:
-            print(f'!!! ConnectionError: Unable to connect to port 22 on {hostname} !!!\n')
+            print(f'!!! ConnectionError: Unable to connect to port 22 on {hname} !!!\n')
             return False
         else:
             with SCPClient(ssh_client.get_transport()) as scp:
@@ -146,70 +151,116 @@ def file_transfer(hname, uname, passwd, local_path, remote_path, put_file=True, 
                     try:
                         scp.put(local_path, remote_path)
                     except SCPException as ex:
-                        print(f'\n!!! FileTransferError: Scp exception trying to transfer file !!!\n{ex}')
+                        print(f'!!! FileTransferError: Scp exception trying to transfer file !!!{ex}\n')
                         return False
                     except IOError as ex:
-                        print(f'\n!!! IOError: Error accessing {local_path} !!!\n{ex}')
-                        return True
+                        print(f'!!! IOError: Error accessing {local_path} !!!')
+                        return False
                     else:
                         return True
 
                 try:
                     scp.get(remote_path)
                 except SCPException as ex:
-                    print(f'\n!!! FileTransferError: Scp exception trying to get remote file {remote_path} !!!\n{ex}')
+                    print(f'!!! FileTransferError: Scp exception trying to get remote file {remote_path} !!!{ex}\n')
                     return False
                 except IOError as ex:
-                    print(f'\n!!! IOError: Error writing remote file {remote_path} locally !!!\n{ex}')
+                    print(f'!!! IOError: Error writing remote file {remote_path} locally !!!{ex}\n')
                     return False
                 else:
                     return True
 
 
-if __name__ == '__main__':
+@Gooey(dump_build_config=True, program_name='Calibration Deployer', richtext_controls=True, auto_start=True)  # image_dir='/path/to/my/image/directory')
+def main():
     """
     Testing ...
     """
+    desc = 'Calibration Deployment Tool'
+
+    parser = GooeyParser(description=desc)
+    parser.add_argument(
+        'password',
+        metavar='Redaptive Password',
+        help='Password for redaptive user',
+        widget='PasswordField')
+    parser.add_argument(
+        'root_password',
+        metavar='Root Password',
+        help='Password for root user',
+        widget='PasswordField')
+    parser.add_argument(
+        'local_file_path',
+        metavar='Calibration File',
+        # required=True,
+        default='meterCalData.json',
+        help='File to be deployed',
+        widget='FileChooser')
+    parser.add_argument(
+        'hostname',
+        metavar='Target Meter',
+        default='192.168.54.224',
+        help='Meter hostname or IP address')
+
+    args = parser.parse_args()
+
     # We need to provide some basic info to describe the target meter.
-    hostname = '192.168.54.224'
+    hostname = args.hostname
     username = 'redaptive'
     root_username = 'root'
-    password = getpass(prompt=f'Enter password for the \'{username}\' user: ')
-    root_password = getpass(prompt=f'Enter password for the \"{root_username}\" user: ')
+    password = args.password  # getpass(prompt=f'Enter password for the \'{username}\' user: ')  # 'xXxXxXxXxXxXx'
+    root_password = args.root_password  # getpass(prompt=f'Enter password for the \"{root_username}\" user: ')
+    local_file_path = args.local_file_path
+    remote_file_path = '/data/'
 
+    exit_code = 0
     # Until we are done interacting with the meters, lets keep the app running and the credentials stored locally.
     try:
         while True:
             # Example enabling root ssh access on a given meter.
-            print(f'Unocking ssh on {hostname}...')
+            print(stylize(f'Unlocking ssh on {hostname}...', attr('bold')))  # .format(hostname))
             (ssh_result, resulting_config) = root_ssh_access(hostname, username, password, root_password, True)
 
             if ssh_result:
                 current_config = resulting_config[-1].decode('utf-8')
-                print(f'Unlocked root ssh:  {current_config}')
-                print(f'Transferring file(s) to meter @{hostname}')
-                scp_result = file_transfer(hostname, root_username, root_password, 'test_scp_file.txt', '/tmp/test.txt')
-                if scp_result:
-                    print(f'File transfer succeeded!')
-                else:
-                    print(f'File transfer failed.')
-            else:
-                print(f'Failed to unlock {hostname}.')
+                print(stylize(f'Unlocked root ssh\n'
+                              f'Current configuration = {current_config}\n', fg('green')))
 
-            print(f'Locking down ssh on {hostname}...')
+                print(stylize(f'Transferring file(s) to meter @{hostname}', attr('bold')))
+                scp_result = file_transfer(hostname, root_username, root_password, local_file_path, remote_file_path)
+
+                if scp_result:
+                    print(stylize('File transfer succeeded!\n', fg("green")))
+                else:
+                    print(stylize('File transfer failed.\n', fg("red"), attr('bold')))
+                    exit_code = 1
+            else:
+                print(stylize(f'Failed to unlock {hostname}.\n', fg("red")))
+                exit_code = 1
+            print(stylize(f'Running fail-safe attempt to lock down ssh on {hostname}...', attr('bold')))
             (ssh_result, resulting_config) = root_ssh_access(hostname, root_username, root_password)
 
-            if not ssh_result:
+            if ssh_result:
                 current_config = resulting_config[-1].decode('utf-8')
-                print(f'Failed to lock down ssh access on {hostname}!')
-                print(f'The current ssh config includes the following line:\n{current_config}')
-                print('You may want to try re-running the enable/disable process again.')
+                print(stylize(f'Successfully locked down ssh access on {hostname}\n'
+                              f'Current configuration = {current_config}\n', fg('green')))
+            else:
+                print(stylize(f'Failed to lock down ssh access on {hostname}!\n', fg('red'), attr('bold')))
+                exit_code = 1
+                if resulting_config:
+                    current_config = resulting_config[-1].decode('utf-8')
+                    print(f'The current ssh config includes the following root login line:\n{current_config}')
+                print(stylize('You may want to try re-running the enable/disable process again.', fg("yellow")))
 
-            resp = input('\nDo you want to process another meter? [y|n]: ')
-            if resp != 'y':
-                print('Exiting...')
-                sys.exit(0)
+            # resp = input('\nDo you want to process another meter? [y|n]: ')
+            # if resp != 'y':
+            #     print('Exiting...')
+            sys.exit(exit_code)
 
     except KeyboardInterrupt:
         print('Exiting...')
-        sys.exit(0)
+        sys.exit(exit_code)
+
+
+if __name__ == '__main__':
+    main()
