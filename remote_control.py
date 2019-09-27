@@ -4,12 +4,9 @@
 __version__ = '0.1'
 __version_info__ = (0, 1)
 __author__ = 'SuicidalLabRat <suicidallabrat@gmail.com>'
-from gooey import Gooey
-from gooey import GooeyParser
-from colored import stylize, attr, fg
 import sys
 from time import sleep
-# from getpass import getpass
+from getpass import getpass
 
 # Import 3rd party modules
 # noinspection PyBroadException
@@ -150,10 +147,10 @@ def file_transfer(hname, uname, passwd, local_path, remote_path, put_file=True, 
                 if put_file:
                     try:
                         scp.put(local_path, remote_path)
-                    except SCPException as ex:
-                        print(f'!!! FileTransferError: Scp exception trying to transfer file !!!{ex}\n')
+                    except SCPException:
+                        print(f'!!! FileTransferError: Scp exception trying to transfer file !!!\n')
                         return False
-                    except IOError as ex:
+                    except IOError:
                         print(f'!!! IOError: Error accessing {local_path} !!!')
                         return False
                     else:
@@ -161,105 +158,40 @@ def file_transfer(hname, uname, passwd, local_path, remote_path, put_file=True, 
 
                 try:
                     scp.get(remote_path)
-                except SCPException as ex:
-                    print(f'!!! FileTransferError: Scp exception trying to get remote file {remote_path} !!!{ex}\n')
+                except SCPException:
+                    print(f'!!! FileTransferError: Scp exception trying to get remote file {remote_path} !!!\n')
                     return False
-                except IOError as ex:
-                    print(f'!!! IOError: Error writing remote file {remote_path} locally !!!{ex}\n')
+                except IOError:
+                    print(f'!!! IOError: Error writing remote file {remote_path} locally !!!\n')
                     return False
                 else:
                     return True
 
 
-@Gooey(dump_build_config=True, program_name='Calibration Deployer', richtext_controls=True, auto_start=True)  # image_dir='/path/to/my/image/directory')
 def main():
     """
-    Testing ...
+    Usage example...
     """
-    desc = 'Calibration Deployment Tool'
-
-    parser = GooeyParser(description=desc)
-    parser.add_argument(
-        'password',
-        metavar='Redaptive Password',
-        help='Password for redaptive user',
-        widget='PasswordField')
-    parser.add_argument(
-        'root_password',
-        metavar='Root Password',
-        help='Password for root user',
-        widget='PasswordField')
-    parser.add_argument(
-        'local_file_path',
-        metavar='Calibration File',
-        # required=True,
-        default='meterCalData.json',
-        help='File to be deployed',
-        widget='FileChooser')
-    parser.add_argument(
-        'hostname',
-        metavar='Target Meter',
-        default='192.168.54.224',
-        help='Meter hostname or IP address')
-
-    args = parser.parse_args()
-
     # We need to provide some basic info to describe the target meter.
-    hostname = args.hostname
+    hostname = '192.168.0.1'
     username = 'redaptive'
     root_username = 'root'
-    password = args.password  # getpass(prompt=f'Enter password for the \'{username}\' user: ')  # 'xXxXxXxXxXxXx'
-    root_password = args.root_password  # getpass(prompt=f'Enter password for the \"{root_username}\" user: ')
-    local_file_path = args.local_file_path
-    remote_file_path = '/data/'
+    password = getpass(prompt=f'Enter password for the \'{username}\' user: ')
+    root_password = getpass(prompt=f'Enter password for the \"{root_username}\" user: ')
+    local_file_path = 'meterCalData.json'
+    remote_file_path = '/data/redaptive/config'
 
-    exit_code = 0
-    # Until we are done interacting with the meters, lets keep the app running and the credentials stored locally.
-    try:
-        while True:
-            # Example enabling root ssh access on a given meter.
-            print(stylize(f'Unlocking ssh on {hostname}...', attr('bold')))  # .format(hostname))
-            (ssh_result, resulting_config) = root_ssh_access(hostname, username, password, root_password, True)
+    # Example enabling root ssh access on a given meter.
+    # Note: Returns a bool representing whether the meters root ssh access is in the requested state.
+    #       Further, returns a list containing the lines of the ssh configuration following processing or None if we
+    #       failed to get the meters current ssh configuration.
+    (ssh_result, resulting_config) = root_ssh_access(hostname, username, password, root_password, True)
 
-            if ssh_result:
-                current_config = resulting_config[-1].decode('utf-8')
-                print(stylize(f'Unlocked root ssh\n'
-                              f'Current configuration = {current_config}\n', fg('green')))
+    # Example disabling root ssh access on a given meter.
+    (ssh_result, resulting_config) = root_ssh_access(hostname, username, password, root_password)
 
-                print(stylize(f'Transferring file(s) to meter @{hostname}', attr('bold')))
-                scp_result = file_transfer(hostname, root_username, root_password, local_file_path, remote_file_path)
-
-                if scp_result:
-                    print(stylize('File transfer succeeded!\n', fg("green")))
-                else:
-                    print(stylize('File transfer failed.\n', fg("red"), attr('bold')))
-                    exit_code = 1
-            else:
-                print(stylize(f'Failed to unlock {hostname}.\n', fg("red")))
-                exit_code = 1
-            print(stylize(f'Running fail-safe attempt to lock down ssh on {hostname}...', attr('bold')))
-            (ssh_result, resulting_config) = root_ssh_access(hostname, root_username, root_password)
-
-            if ssh_result:
-                current_config = resulting_config[-1].decode('utf-8')
-                print(stylize(f'Successfully locked down ssh access on {hostname}\n'
-                              f'Current configuration = {current_config}\n', fg('green')))
-            else:
-                print(stylize(f'Failed to lock down ssh access on {hostname}!\n', fg('red'), attr('bold')))
-                exit_code = 1
-                if resulting_config:
-                    current_config = resulting_config[-1].decode('utf-8')
-                    print(f'The current ssh config includes the following root login line:\n{current_config}')
-                print(stylize('You may want to try re-running the enable/disable process again.', fg("yellow")))
-
-            # resp = input('\nDo you want to process another meter? [y|n]: ')
-            # if resp != 'y':
-            #     print('Exiting...')
-            sys.exit(exit_code)
-
-    except KeyboardInterrupt:
-        print('Exiting...')
-        sys.exit(exit_code)
+    # Transfer a file to a remote meter - assumes root ssh access has been enabled on the remote meter.
+    scp_result = file_transfer(hostname, root_username, root_password, local_file_path, remote_file_path)
 
 
 if __name__ == '__main__':
