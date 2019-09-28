@@ -47,7 +47,7 @@ def main():
     hostname = args.hostname
     username = 'redaptive'
     root_username = 'root'
-    password = args.password  # 'xXxXxXxXxXxXx'
+    password = args.password
     root_password = args.root_password
     local_file_path = args.local_file_path
     remote_file_path = '/data/'
