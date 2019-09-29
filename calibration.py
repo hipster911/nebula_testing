@@ -5,7 +5,7 @@ __version__ = '0.1'
 __version_info__ = (0, 1)
 __author__ = 'SuicidalLabRat <suicidallabrat@gmail.com>'
 import sys
-from remote_control import root_ssh_access, file_transfer
+from nebula_utilities.remote_control import root_ssh_access, file_transfer
 from gooey import Gooey
 from gooey import GooeyParser
 from colored import stylize, attr, fg
