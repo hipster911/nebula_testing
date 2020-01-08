@@ -225,8 +225,8 @@ def main():
     hostname = '192.168.54.224'
     username = 'redaptive'
     root_username = 'root'
-    password = 'RedNebdzr^d%4D'  # getpass(prompt=f'Enter password for the \'{username}\' user: ')
-    root_password = 'test'  # getpass(prompt=f'Enter password for the \"{root_username}\" user: ')
+    password = getpass(prompt=f'Enter password for the \'{username}\' user: ')
+    root_password = getpass(prompt=f'Enter password for the \"{root_username}\" user: ')
     cal_file_src = '../meterCalData.json'
     cal_file_dst = '/data/'
     config_file_src = '../meterConfigData.json'
