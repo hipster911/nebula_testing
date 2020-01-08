@@ -5,6 +5,7 @@ __version__ = '0.1'
 __version_info__ = (0, 1)
 __author__ = 'SuicidalLabRat <suicidallabrat@gmail.com>'
 import sys
+from nebula_utilities import exceptions
 from os import path
 from time import sleep
 from io import StringIO
@@ -13,7 +14,7 @@ from getpass import getpass
 # Import 3rd party modules
 # noinspection PyBroadException
 try:
-    from paramiko import SSHClient, AutoAddPolicy, ssh_exception
+    from paramiko import SSHClient, AutoAddPolicy, ssh_exception, SSHException
 except Exception:
     print(f'ERROR: The Paramiko module is required to use {sys.argv}.')
     print('Download it here: https://github.com/paramiko/paramiko')
@@ -26,6 +27,8 @@ except Exception:
     print(f'ERROR: The scp module is required to use {sys.argv}.')
     print('Download it here: https://github.com/jbardin/scp.py')
     exit(1)
+
+# TODO: Make this a class and init it with a username:password dictionary, hostname
 
 
 def root_ssh_access(hname, uname, passwd, rpasswd=None, enable=False, port=22, timeout=15):
@@ -58,7 +61,7 @@ def root_ssh_access(hname, uname, passwd, rpasswd=None, enable=False, port=22, t
     with SSHClient() as ssh_client:
         ssh_client.set_missing_host_key_policy(AutoAddPolicy())
         try:
-            ssh_client.connect(hname, port, uname, passwd)
+            ssh_client.connect(hname, port, uname, passwd, banner_timeout=30)
         except ssh_exception.AuthenticationException:
             print(f'!!! AuthenticationError: Authentication failed logging into {hname} !!!\n')
             return False, None
@@ -69,33 +72,42 @@ def root_ssh_access(hname, uname, passwd, rpasswd=None, enable=False, port=22, t
             print(f'!!! Timed out trying to connect to {hname} !!!')
             return False, None
         else:
-            channel = ssh_client.invoke_shell()
+            try:
+                channel = ssh_client.invoke_shell()
+            except SSHException as e:
+                raise exceptions.UtilWrapperError(f'ssh failed to invoke a shell on {hname}!', e)
 
         # If were su'ing to root from a non privileged user to issue our commands...
         if rpasswd:
-            channel.send('su -\n')
-            while not channel.recv_ready():
-                sleep(1)
-            output = channel.recv(1024).decode('utf-8')
-            channel.send(f'{rpasswd}\n')
-            while not channel.recv_ready():
-                sleep(1)
-            output = channel.recv(1024).decode('utf-8')
-            if 'failure' in output:
+            try:
+                channel.send('su -\n')
+                while not channel.recv_ready():
+                    sleep(1)
+                output = channel.recv(1024).decode('utf-8')
+                channel.send(f'{rpasswd}\n')
+                while not channel.recv_ready():
+                    sleep(1)
+                output = channel.recv(1024).decode('utf-8')
+                if 'failure' in output:
+                    raise exceptions.SuAuthenticationError
+                else:
+                    channel.send(f'echo \"{dropbear_conf}\" > {dropbear_conf_path}\n')
+                    while not channel.recv_ready():
+                        sleep(1)
+                    output = channel.recv(1024).decode('utf-8')
+            except exceptions.SuAuthenticationError:
                 print('!!! AuthenticationError: su command failed with authentication error !!!')
-            else:
+
+        # If we're ssh'ing in as the root, i.e. to disable root ssh access.
+        else:
+            try:
                 channel.send(f'echo \"{dropbear_conf}\" > {dropbear_conf_path}\n')
                 while not channel.recv_ready():
                     sleep(1)
                 output = channel.recv(1024).decode('utf-8')
-
-        # If we're ssh'ing in as the root user to issue our command...
-        else:
-            channel.send(f'echo \"{dropbear_conf}\" > {dropbear_conf_path}\n')
-            while not channel.recv_ready():
-                sleep(1)
-            output = channel.recv(1024).decode('utf-8')
-            if 'denied' in output:
+                if 'denied' in output:
+                    raise exceptions.RemoteIOError
+            except exceptions.RemoteIOError:
                 print(f'!!! IOError: Permission denied writing to {dropbear_conf_path} !!!')
 
         channel.send(f'cat {dropbear_conf_path}\n')
@@ -175,10 +187,8 @@ def file_transfer(hname, uname, passwd, file_paths,  put_file=True, port=22):
                             return_status = False
                         except ssh_exception.SSHException:
                             print('ssh exception!')
-
                         else:
                             status_list.append((True, (src, dst)))
-
                     return return_status, status_list
 
                 for src, dst in file_paths:
@@ -198,16 +208,25 @@ def file_transfer(hname, uname, passwd, file_paths,  put_file=True, port=22):
                 return return_status, status_list
 
 
+def remote_command():
+    """
+    Takes one or more commands and their associated arguments, and run them in list order.
+    Given a 'file-like' object, transfer the object and execute it from the remote host /tmp/.
+    :return:
+    """
+    pass
+
+
 def main():
     """
     Usage example...
     """
     # We need to provide some basic info to describe the target meter.
-    hostname = '192.168.0.186'
+    hostname = '192.168.54.224'
     username = 'redaptive'
     root_username = 'root'
-    password = getpass(prompt=f'Enter password for the \'{username}\' user: ')
-    root_password = getpass(prompt=f'Enter password for the \"{root_username}\" user: ')
+    password = 'RedNebdzr^d%4D'  # getpass(prompt=f'Enter password for the \'{username}\' user: ')
+    root_password = 'test'  # getpass(prompt=f'Enter password for the \"{root_username}\" user: ')
     cal_file_src = '../meterCalData.json'
     cal_file_dst = '/data/'
     config_file_src = '../meterConfigData.json'
@@ -237,7 +256,7 @@ def main():
         print(f'Status: {scp_result}\nStatus list:\n{return_list}')
 
     # Example disabling root ssh access on a given meter.
-    (ssh_result, resulting_config) = root_ssh_access(hostname, username, password, root_password)
+    (ssh_result, resulting_config) = root_ssh_access(hostname, root_username, root_password)
 
 
 if __name__ == '__main__':
