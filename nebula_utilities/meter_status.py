@@ -2,12 +2,15 @@ import importlib.util
 from collections import namedtuple
 from datetime import datetime
 import os
+from sys import stdout as sys_stdout
 import re
 import uuid
 import subprocess
 import socket
 import fcntl
 import struct
+from json import dumps
+import csv
 
 def read_run_file(name):
     run_path = '/run/'
@@ -319,64 +322,96 @@ def get_sensor_log_stats(path = '/var/spool/redaptive-out'):
         return len(file_list)
 
 
+def csv_header_from_nested_dict(dictionary):
+    header = []
+    try:
+        for key, value in dictionary.items():
+            try:
+                for k, v in value.items():
+                    header.append(k)
+            except AttributeError:
+                continue
+    except Exception as e:
+        print('Failed to auto generate csv header from the nested dictionary {0}\n{1}'.format(dictionary, e))
+        return None
+    else:
+        return header
+
+def csv_row_from_nested_dict(dictionary):
+    row = dict()
+    try:
+        for key, value in dictionary.items():
+            try:
+                for k, v in value.items():
+                    row[k] = v
+            except AttributeError:
+                continue
+    except Exception as e:
+        print('Failed generate a csv row from the nested dictionary {0}\n{1}'.format(dictionary, e))
+        return None
+    else:
+        return row
+
+
 if __name__ == '__main__':
-    system = {}
-    networking = {}
-    filesystem = {}
-    software = {}
+    meter = {
+        'mac_addr': get_mac(),
+        'system': {},
+        'networking': {},
+        'filesystem': {},
+        'software': {}
+    }
 
-    # !!! Make all methods return None on exception, so we always have something stored.
-    system['hostname'] = get_hostname()
-    system['system_time'] = get_system_time()
-    system['uptime'] =  '{0.days}:{0.hours}:{0.minutes}:{0.seconds}'.format(get_uptime())
-    system['loadavg'] = get_load_average(1)
-    system['mem_used'] = get_mem_percent_used()
+    meter['system']['hostname'] = get_hostname()
+    meter['system']['system_time'] = str(get_system_time())
+    meter['system']['uptime'] =  '{0.days}:{0.hours}:{0.minutes}:{0.seconds}'.format(get_uptime())
+    meter['system']['loadavg'] = get_load_average(1)
+    meter['system']['mem_used'] = get_mem_percent_used()
 
-    filesystem['root_fs_used'] = round(get_fs_usage())
-    filesystem['run_fs_used'] = round(get_fs_usage('/run'))
-    filesystem['redaptive_fs_used'] = round(get_fs_usage('/var/spool/redaptive'))
-    filesystem['measurement_backlog'] = get_sensor_log_stats()
-    filesystem['meter_app_backlog'] = get_sensor_log_stats('/var/spool/redaptive')
+    meter['filesystem']['root_fs_used'] = round(get_fs_usage())
+    meter['filesystem']['run_fs_used'] = round(get_fs_usage('/run'))
+    meter['filesystem']['redaptive_fs_used'] = round(get_fs_usage('/var/spool/redaptive'))
+    meter['filesystem']['measurement_backlog'] = get_sensor_log_stats()
+    meter['filesystem']['meter_app_backlog'] = get_sensor_log_stats('/var/spool/redaptive')
 
-    networking['mac_eth0'] = get_mac()
-    networking['ip_addr_eth0'] = get_ip_address('eth0')
-    networking['ip_addr_ppp0'] = get_ip_address('ppp0')
-    networking['ip_addr_active'] = get_active_ip_address()
+    meter['networking']['mac_eth0'] = get_mac()
+    meter['networking']['ip_addr_eth0'] = get_ip_address('eth0')
+    meter['networking']['ip_addr_ppp0'] = get_ip_address('ppp0')
+    meter['networking']['ip_addr_active'] = get_active_ip_address()
     def_iface = get_def_route()[0]
-    networking['default_iface'] = def_iface[len(def_iface) - 1]
-    networking['iccid'] = 'NA'
-    networking['apn'] = 'NA'
+    meter['networking']['default_iface'] = def_iface[len(def_iface) - 1]
+    meter['networking']['iccid'] = 'NA'
+    meter['networking']['apn'] = 'NA'
     sig_info = get_signal_str()
     if sig_info:
-        networking['sig_str'] = sig_info[1]
-        networking['sig_qual'] = sig_info[2]
-    networking['packet_loss'] = get_packet_loss()
-    networking['network_errors'] = ''
+        meter['networking']['sig_str'] = sig_info[1]
+        meter['networking']['sig_qual'] = sig_info[2]
+    meter['networking']['packet_loss'] = get_packet_loss()
+    meter['networking']['network_errors'] = ''
 
-    software['redrock_os'] = get_os_version()
-    software['u-boot'] = 'NA'
-    software['kernel'] = 'NA'
-    software['stm32'] = get_software_version('stm32')
-    software['meter-app'] = get_software_version('meter-app')
-    software['rd-accum'] = get_software_version('rd-accum')
-    software['network-manager'] = 'NA'
-    software['upload-manager'] = 'NA'
-    software['led-controller'] = 'NA'
-    software['ims2-cmd-interface'] = get_software_version('ims2-cmd-interface')
-    software['mender'] = get_software_version('mender')
+    meter['software']['redrock_os'] = get_os_version()
+    meter['software']['u-boot'] = 'NA'
+    meter['software']['kernel'] = 'NA'
+    meter['software']['stm32'] = get_software_version('stm32')
+    meter['software']['meter-app'] = get_software_version('meter-app')
+    meter['software']['rd-accum'] = get_software_version('rd-accum')
+    meter['software']['network-manager'] = 'NA'
+    meter['software']['upload-manager'] = 'NA'
+    meter['software']['led-controller'] = 'NA'
+    meter['software']['ims2-cmd-interface'] = get_software_version('ims2-cmd-interface')
+    meter['software']['mender'] = get_software_version('mender')
 
-    print('System Data:')
-    for key, value in system.items():
-        print('{0}:\t{1}'.format(key, value))
+    # Json to standard out.
+    # print(dumps(meter))
 
-    print('\nFilesystem Data:')
-    for key, value in filesystem.items():
-        print('{0}:\t{1}'.format(key, value))
+    # Csv to standard out.
+    csv_columns = csv_header_from_nested_dict(meter)
+    row_data = csv_row_from_nested_dict(meter)
+    csv_file = sys_stdout
 
-    print('\nNetworking Data:')
-    for key, value in networking.items():
-        print('{0}:\t{1}'.format(key, value))
-
-    print('\nSoftware Data:')
-    for key, value in software.items():
-        print('{0}:\t{1}'.format(key, value))
+    try:
+        writer = csv.DictWriter(csv_file, fieldnames=csv_columns)
+        writer.writeheader()
+        writer.writerow(row_data)
+    except IOError:
+        print("I/O error")
