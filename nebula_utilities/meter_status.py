@@ -158,7 +158,7 @@ def get_uptime():
         print('failed to get system uptime')
         return None
     else:
-        return uptime_seconds
+        return normalize_seconds(round(uptime_seconds))
 
 
 def normalize_seconds(seconds: int) -> tuple or None:
@@ -167,7 +167,7 @@ def normalize_seconds(seconds: int) -> tuple or None:
         (hours, remainder) = divmod(remainder, 3600)
         (minutes, seconds) = divmod(remainder, 60)
     except Exception as e:
-        print('Failed to convert seconds to d:m:h:s.\n{}'.format(e))
+        print('Failed to convert seconds to d:h:m:s.\n{}'.format(e))
         return None
     else:
         return namedtuple("_", ("days", "hours", "minutes", "seconds"))(days, hours, minutes, seconds)
@@ -328,7 +328,7 @@ if __name__ == '__main__':
     # !!! Make all methods return None on exception, so we always have something stored.
     system['hostname'] = get_hostname()
     system['system_time'] = get_system_time()
-    system['uptime'] = round(get_uptime()/60)
+    system['uptime'] =  '{0.days}:{0.hours}:{0.minutes}:{0.seconds}'.format(get_uptime())
     system['loadavg'] = get_load_average(1)
     system['mem_used'] = get_mem_percent_used()
 
