@@ -96,40 +96,109 @@ def get_software_checksum(file, algorithm='MD5'):
 
 
 def get_eeprom_data():
-    # shell version of grabbing our hardware id data stored at i2c bus 0, chip address 0x50, data bytes 0x20-0x22:
-    # Set the pointer at the bit you want
-    # i2cset -y 0 0x50 0x20 0x20
-    # Get the data at that location, and the adjacent 2 bytes as well.
-    # i2cget -y 0 0x50     # Returns the byte at the current pointer, set above, and advances the pointer 1, to 0x21.
-    # i2cget -y 0 0x50     # Returns the byte at the current pointer, set above, and advances the pointer 1, to 0x22.
-    # i2cget -y 0 0x50     # Returns the byte at the current pointer, set above, and advances the pointer 1, to 0x23.
-
-    from smbus2 import SMBus
-    byte_count = 0
+    from sys import _getframe
+    my_name = _getframe().f_code.co_name
     hardware_id = {}
-    address = 0x50
-    bus = smbus.SMBus(0)
-    bus.write_byte_data(address, 0x20, 0x20)  # the 0x20, 0x20 is the '16 bit' address split into 2 bytes
-    while byte_count <= 3:
+
+    # If it exists, use the smbus module to read the EEPROM programmatically,
+    # otherwise make shell calls to the i2ctools to achieve the same
+    try:
+        from smbus2 import SMBus
+    except ModuleNotFoundError:
+        print('{0}: smbus module not available for import, will attempt to read eeprom from cmdline...'.format(my_name))
+    else:
+        byte_count = 0
+        address = 0x50
+        bus = smbus.SMBus(0)
+        bus.write_byte_data(address, 0x20, 0x20)  # the 0x20, 0x20 is the '16 bit' address split into 2 bytes
+        while byte_count <= 3:
+            try:
+                result = bus.read_byte(address)  # reads at the current address pointer, which we set on the previous line
+            except Exception as e:
+                print('Error getting hardware id from eeprom.')
+                return None
+            else:
+                byte_count += 1
+                if byte_count == 1:
+                    hardware_id['model'] = result
+                elif byte_count == 2:
+                    if hardware_id['model'] != '00':
+                        hardware_id['hsm'] = result
+                    else:
+                        hardware_id['hsm'] = None
+                        hardware_id['version'] = result
+                elif byte_count == 3:
+                    hardware_id['version'] = result
+
+        return hardware_id
+
+    # Try using i2ctools from the shell.
+    i2cset = '/usr/sbin/i2cset'
+    i2cget = '/usr/sbin/i2cget'
+    try:
+        set_i2c_pointer = subprocess.run([i2cset, '-y', '0', '0x50', '0x20', '0x20'],
+                                         stdout=subprocess.PIPE,
+                                         universal_newlines=True)
+        if set_i2c_pointer.returncode != 0:
+            print('{0}: i2cset exited on non 0 return code. [{1}]'.format(my_name, set_i2c_pointer.returncode))
+            return None
+    except Exception as ex:
+        print('{0}: Failed to run \'i2cset\' system command to get eeprom data. - {1}'.format(my_name, ex))
+        return None
+    else:
+        # GET FIRST BYTE
         try:
-            result = bus.read_byte(address)  # reads at the current address pointer, which we set on the previous line
-        except Exception as e:
-            print('Error getting hardware id from eeprom.')
+            eeprom_byte = subprocess.run([i2cget, '-y', '0', '0x50'],
+                                         stdout=subprocess.PIPE,
+                                         universal_newlines=True)
+            if eeprom_byte.returncode != 0:
+                print('{0}: i2cset exited on non 0 return code. [{1}]'.format(my_name, set_i2c_pointer.returncode))
+                return None
+        except Exception as ex:
+            print('{0}: Failed to run \'i2cget\' system command to get the first byte of our eeprom data. - {1}'
+                  .format(my_name, ex))
             return None
         else:
-            byte_count += 1
-            if byte_count == 1:
-                hardware_id['model'] = result
-            elif byte_count == 2:
-                if hardware_id['model'] != '00':
-                    hardware_id['hsm'] = result
-                else:
-                    hardware_id['hsm'] = None
-                    hardware_id['version'] = result
-            elif byte_count == 3:
-                hardware_id['version'] = result
-    print(hardware_id)
-    return hardware_id
+            hardware_id['model'] = eeprom_byte.stdout
+
+        # GET SECOND BYTE
+        try:
+            eeprom_byte = subprocess.run([i2cget, '-y', '0', '0x50'],
+                                         stdout=subprocess.PIPE,
+                                         universal_newlines=True)
+            if eeprom_byte.returncode != 0:
+                print('{0}: i2cset exited on non 0 return code. [{1}]'.format(my_name, set_i2c_pointer.returncode))
+                return None
+        except Exception as ex:
+            print('{0}: Failed to run \'i2cget\' system command to get the second byte of our eeprom data. - {1}'
+                  .format(my_name, ex))
+            return None
+        else:
+            # Big Bang meters only use 2 bytes, where the second byte is the hardware version. Nebula uses the second
+            # byte to identify the HSM security mode, and the third byte as the hardware ID.
+            if hardware_id['model'] != '00':
+                hardware_id['hsm'] = eeprom_byte.stdout
+            else:
+                hardware_id['hsm'] = None
+                hardware_id['version'] = eeprom_byte.stdout
+                return hardware_id
+
+        # GET THIRD BYTE
+        try:
+            eeprom_byte = subprocess.run([i2cget, '-y', '0', '0x50'],
+                                         stdout=subprocess.PIPE,
+                                         universal_newlines=True)
+            if eeprom_byte.returncode != 0:
+                print('{0}: i2cset exited on non 0 return code. [{1}]'.format(my_name, set_i2c_pointer.returncode))
+                return None
+        except Exception as ex:
+            print('{0}: Failed to run \'i2cget\' system command to get the third byte of our eeprom data. - {1}'
+                  .format(my_name, ex))
+            return None
+        else:
+            hardware_id['version'] = eeprom_byte.stdout
+
+        return hardware_id
 
 
 def get_running_processes():
@@ -172,7 +241,7 @@ def run_cmd(*args, **kwargs):
         print(e)
         return None
     else:
-        return  process.communicate()  # returns (stdout, stderr)
+        return process.communicate()  # returns (stdout, stderr)
 
 
 def list_files(base_path, ext=None):
@@ -510,6 +579,7 @@ if __name__ == '__main__':
     '''
     meter = {
         'mac_addr': get_mac(),
+        'eeprom': get_eeprom_data(),
         'system': {},
         'networking': {},
         'filesystem': {},
@@ -518,7 +588,7 @@ if __name__ == '__main__':
 
     meter['system']['hostname'] = get_hostname()
     meter['system']['system_time'] = str(get_system_time())
-    meter['system']['uptime'] =  '{0.days}:{0.hours}:{0.minutes}:{0.seconds}'.format(get_uptime(fancy=True))
+    meter['system']['uptime'] = '{0.days}:{0.hours}:{0.minutes}:{0.seconds}'.format(get_uptime(fancy=True))
     meter['system']['loadavg'] = get_load_average(1)
     meter['system']['mem_used'] = get_mem_percent_used()
 
