@@ -136,9 +136,7 @@ def get_eeprom_data():
     i2cset = '/usr/sbin/i2cset'
     i2cget = '/usr/sbin/i2cget'
     try:
-        set_i2c_pointer = subprocess.run([i2cset, '-y', '0', '0x50', '0x20', '0x20'],
-                                         stdout=subprocess.PIPE,
-                                         universal_newlines=True)
+        set_i2c_pointer = subprocess.run([i2cset, '-y', '0', '0x50', '0x20', '0x20'])
         if set_i2c_pointer.returncode != 0:
             print('{0}: i2cset exited on non 0 return code. [{1}]'.format(my_name, set_i2c_pointer.returncode))
             return None
@@ -148,9 +146,7 @@ def get_eeprom_data():
     else:
         # GET FIRST BYTE
         try:
-            eeprom_byte = subprocess.run([i2cget, '-y', '0', '0x50'],
-                                         stdout=subprocess.PIPE,
-                                         universal_newlines=True)
+            eeprom_byte = subprocess.run([i2cget, '-y', '0', '0x50'], stdout=subprocess.PIPE)
             if eeprom_byte.returncode != 0:
                 print('{0}: i2cset exited on non 0 return code. [{1}]'.format(my_name, set_i2c_pointer.returncode))
                 return None
@@ -159,13 +155,11 @@ def get_eeprom_data():
                   .format(my_name, ex))
             return None
         else:
-            hardware_id['model'] = eeprom_byte.stdout
+            hardware_id['model'] = eeprom_byte.stdout[2:].decode().rstrip('\n')
 
         # GET SECOND BYTE
         try:
-            eeprom_byte = subprocess.run([i2cget, '-y', '0', '0x50'],
-                                         stdout=subprocess.PIPE,
-                                         universal_newlines=True)
+            eeprom_byte = subprocess.run([i2cget, '-y', '0', '0x50'], stdout=subprocess.PIPE)
             if eeprom_byte.returncode != 0:
                 print('{0}: i2cset exited on non 0 return code. [{1}]'.format(my_name, set_i2c_pointer.returncode))
                 return None
@@ -177,17 +171,15 @@ def get_eeprom_data():
             # Big Bang meters only use 2 bytes, where the second byte is the hardware version. Nebula uses the second
             # byte to identify the HSM security mode, and the third byte as the hardware ID.
             if hardware_id['model'] != '00':
-                hardware_id['hsm'] = eeprom_byte.stdout
+                hardware_id['hsm'] = eeprom_byte.stdout[2:].decode().rstrip('\n')
             else:
                 hardware_id['hsm'] = None
-                hardware_id['version'] = eeprom_byte.stdout
+                hardware_id['version'] = eeprom_byte.stdout[2:].decode().rstrip('\n')
                 return hardware_id
 
         # GET THIRD BYTE
         try:
-            eeprom_byte = subprocess.run([i2cget, '-y', '0', '0x50'],
-                                         stdout=subprocess.PIPE,
-                                         universal_newlines=True)
+            eeprom_byte = subprocess.run([i2cget, '-y', '0', '0x50'], stdout=subprocess.PIPE)
             if eeprom_byte.returncode != 0:
                 print('{0}: i2cset exited on non 0 return code. [{1}]'.format(my_name, set_i2c_pointer.returncode))
                 return None
@@ -196,7 +188,7 @@ def get_eeprom_data():
                   .format(my_name, ex))
             return None
         else:
-            hardware_id['version'] = eeprom_byte.stdout
+            hardware_id['version'] = eeprom_byte.stdout[2:].decode().rstrip('\n')
 
         return hardware_id
 
