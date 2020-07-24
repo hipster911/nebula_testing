@@ -389,13 +389,13 @@ def get_signal_str(path = '/var/spool/redaptive'):
 
 def get_mac():
     try:
-        return ':'.join(re.findall('..', '%012x' % uuid.getnode()))
+        return ''.join(re.findall('..', '%012x' % uuid.getnode()))
     except Exception:
         print('Failed to get system MAC address.')
         return None
 
 
-def get_ip_address(ifname = 'eth0'):
+def get_ip_address(ifname='eth0'):
     s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     # s.setsockopt(socket.SOL_SOCKET, socket.SO_BINDTODEVICE, b"eth0")  # Bind a particular interface.
     try:

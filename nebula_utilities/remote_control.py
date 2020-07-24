@@ -210,7 +210,7 @@ def file_transfer(hname, uname, passwd, file_paths,  put_file=True, port=22):
 
 def remote_command():
     """
-    Takes one or more commands and their associated arguments, and run them in list order.
+    Takes one or more commands and their associated arguments, and runs them in list order.
     Given a 'file-like' object, transfer the object and execute it from the remote host /tmp/.
     :return:
     """
