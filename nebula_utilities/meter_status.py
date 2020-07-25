@@ -208,7 +208,8 @@ def get_running_processes():
             if not '' in process[:1]:
                 process.insert(0, pid)
                 processes.append(process)
-    if processes: return processes
+    if processes:
+        return processes
 
 
 def get_process_info(proc_name):
@@ -222,8 +223,8 @@ def get_process_info(proc_name):
             pid = process[0]
             path_index = [n for n, x in enumerate(process) if proc_name in x]
             if path_index:
-                return pid, process[path_index[0]] # If there are multiple instances, only return the first.
-    return None
+                return pid, process[path_index[0]]  # If there are multiple instances, only return the first.
+    return 'NA', 'NA'
 
 
 def run_cmd(*args, **kwargs):
@@ -571,11 +572,19 @@ if __name__ == '__main__':
     '''
     meter = {
         'mac_addr': get_mac(),
-        'eeprom': get_eeprom_data(),
+        'eeprom': get_eeprom_data(),  # !!! Switch this to get the data from the new rd_accum /run file. !!!
         'system': {},
         'networking': {},
         'filesystem': {},
-        'software': {}
+        'software': {
+            'meterApp': {},
+            'rdAccum': {},
+            'networkManager': {},
+            'uploadManager': {},
+            'ledController': {},
+            'ims2CmdInterface': {},
+            'mender': {}
+        }
     }
 
     meter['system']['hostname'] = get_hostname()
@@ -611,13 +620,27 @@ if __name__ == '__main__':
     meter['software']['u-boot'] = get_uboot_version()
     meter['software']['kernel'] = get_kernel_version()
     meter['software']['stm32'] = get_software_version('stm32')
-    meter['software']['meter-app'] = get_software_version('meter-app')
-    meter['software']['rd-accum'] = get_software_version('rd-accum')
-    meter['software']['network-manager'] = get_software_checksum(get_process_info('network-manager')[1])[0]
-    meter['software']['upload-manager'] = get_software_checksum(importlib.util.find_spec('rdp_upman.uploader').origin)[0]
-    meter['software']['led-controller'] = get_software_checksum(get_process_info('led_controller')[1])[0]
-    meter['software']['ims2-cmd-interface'] = get_software_version('ims2-cmd-interface')
-    meter['software']['mender'] = get_software_version('mender')
+
+    meter['software']['meterApp']['ver'] = get_software_version('meter_app')
+    meter['software']['meterApp']['pid'] = get_process_info('meter_app')[0]
+
+    meter['software']['rdAccum']['ver'] = get_software_version('RD_Accum')
+    meter['software']['rdAccum']['pid'] = get_process_info('RD_Accum')[0]
+
+    meter['software']['networkManager']['ver'] = get_software_checksum(get_process_info('network-manager')[1])[0]
+    meter['software']['networkManager']['pid'] = get_process_info('network-manager')[0]
+
+    meter['software']['uploadManager']['ver'] = get_software_checksum(importlib.util.find_spec('rdp_upman.uploader').origin)[0]
+    meter['software']['uploadManager']['pid'] = get_process_info('rdp_upman.uploader')[0]
+
+    meter['software']['ledController']['ver'] = get_software_checksum(get_process_info('led_controller')[1])[0]
+    meter['software']['ledController']['pid'] = get_process_info('led_controller')[0]
+
+    meter['software']['ims2CmdInterface']['ver'] = get_software_version('ims2-cmd-interface')
+    meter['software']['ims2CmdInterface']['pid'] = get_process_info('ims2_cmd_interface')[0]
+
+    meter['software']['mender']['ver'] = get_software_version('mender')
+    meter['software']['mender']['pid'] = get_process_info('mender')[0]
 
     # Json to standard out.
     print(dumps(meter))
