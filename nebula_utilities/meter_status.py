@@ -12,14 +12,22 @@ import struct
 import hashlib
 from platform import release as kernel_release
 from json import dumps
+from json import load
 import pathlib
 import csv
 
 
-def read_run_file(name):
-    run_path = '/run/'
+def read_run_file(name, path='/run/'):
     try:
-        with open('{0}{1}'.format(run_path, name), 'r') as f:
+        with open(f'{path}{name}', 'r') as f:
+            json_data = load(f)
+    except Exception as e:
+        pass
+    else:
+        return json_data
+
+    try:
+        with open(f'{path}{name}', 'r') as f:
             version_string = f.readline()
     except Exception as e:
         print(e)
@@ -34,7 +42,7 @@ def get_software_version(name):
     elif re.search(r'rd(.*)accum', name, flags=re.IGNORECASE):
         v = run_cmd(['RD_Accum', '-v'])
         if v:
-            return v[0].split()[5].decode().strip()
+            return v[0].split()[7].decode().strip()
         else: return None
     elif name.lower() == 'stm32':
         return read_run_file('stm32_version').strip()
@@ -75,7 +83,7 @@ def get_software_checksum(file, algorithm='MD5'):
         hash_func = hashlib.sha512()
     else:
         print("Error: " + algorithm + " is an unknown algorithm!\n")
-        return None
+        return None, None
 
     # Read the file (in chunks; to prevent choking the RAM when reading large files).
     try:
@@ -86,8 +94,8 @@ def get_software_checksum(file, algorithm='MD5'):
                     break
                 hash_func.update(file_data)
     except Exception as e:
-        print('Error calculating checksum fo file {0}!\n{1}'.format(file, e))
-        return None
+        print('Error calculating checksum for file {0}!\n{1}'.format(file, e))
+        return None, None
     else:
         return hash_func.hexdigest(), \
                algorithm, \
@@ -224,7 +232,7 @@ def get_process_info(proc_name):
             path_index = [n for n, x in enumerate(process) if proc_name in x]
             if path_index:
                 return pid, process[path_index[0]]  # If there are multiple instances, only return the first.
-    return 'NA', 'NA'
+    return None, None
 
 
 def run_cmd(*args, **kwargs):
@@ -388,6 +396,13 @@ def get_signal_str(path = '/var/spool/redaptive'):
         return s_str
 
 
+def get_radio_metadata(filename):
+    try:
+        return read_run_file(filename)
+    except Exception:
+        return None
+
+
 def get_mac():
     try:
         return ''.join(re.findall('..', '%012x' % uuid.getnode()))
@@ -475,6 +490,29 @@ def get_packet_loss(interface='eth0', samples='1', hostname='8.8.8.8'):
         return None
     else:
         return packetloss
+
+
+def get_net_stats(iface, base_path='/sys/class/net/'):
+    stat_dict = {}
+
+    try:
+        dir_listing = os.scandir(f'{base_path}{iface}/statistics/')
+    except Exception:
+        return None
+
+    for file in dir_listing:
+        if file.is_file(follow_symlinks=True):
+            try:
+                with open(file.path, 'r') as f:
+                    stat = f.readline()
+            except Exception as e:
+                print(f'Error opening {file.path}\n\t{e}\nMoving on...')
+                pass
+            else:
+                if stat:
+                    stat_dict[file.name] = stat.strip()
+
+    return stat_dict if stat_dict else None
 
 
 def get_mem_info():
@@ -566,15 +604,26 @@ if __name__ == '__main__':
     '''
     We still need any important config info
     Critical errors, if possible.
+    ALSO, !!! utilize the get_net_traffic() function!!!
     .
     .
     .
     '''
+    # Grab the subset of meter meta data provided on the filesystem by the RD_accum application.
+    rd_accum_metadata = read_run_file('meterMetaData.json')
+
     meter = {
-        'mac_addr': get_mac(),
-        'eeprom': get_eeprom_data(),  # !!! Switch this to get the data from the new rd_accum /run file. !!!
+        'macAddress': get_mac(),
+        'serial': rd_accum_metadata.get('Serial Num', ''),
+        # 'eeprom': {},               # get_eeprom_data()  #Change to get the data from the new rd_accum metadata file.
+        'hardwareId': rd_accum_metadata.get('HW ID', ''),
         'system': {},
-        'networking': {},
+        'networking': {
+            'statistics': {
+                'eth0': {},
+                'ppp0': {}
+            }
+        },
         'filesystem': {},
         'software': {
             'meterApp': {},
@@ -588,58 +637,64 @@ if __name__ == '__main__':
     }
 
     meter['system']['hostname'] = get_hostname()
-    meter['system']['system_time'] = str(get_system_time())
+    meter['system']['systemTime'] = str(get_system_time())
     meter['system']['uptime'] = '{0.days}:{0.hours}:{0.minutes}:{0.seconds}'.format(get_uptime(fancy=True))
-    meter['system']['loadavg'] = get_load_average(1)
-    meter['system']['mem_used'] = get_mem_percent_used()
+    meter['system']['avgLoad'] = get_load_average(1)
+    meter['system']['memoryUsed'] = get_mem_percent_used()
 
-    meter['filesystem']['root_fs_used'] = round(get_fs_usage())
-    meter['filesystem']['run_fs_used'] = round(get_fs_usage('/run'))
-    meter['filesystem']['redaptive_fs_used'] = round(get_fs_usage('/var/spool/redaptive'))
-    meter['filesystem']['measurement_backlog'] = get_sensor_log_stats()
-    meter['filesystem']['meter_app_backlog'] = get_sensor_log_stats('/var/spool/redaptive')
+    meter['filesystem']['rootFsUsed'] = round(get_fs_usage())
+    meter['filesystem']['runFsUsed'] = round(get_fs_usage('/run'))
+    meter['filesystem']['redaptiveFsUsed'] = round(get_fs_usage('/var/spool/redaptive'))
+    meter['filesystem']['measurementBacklog'] = get_sensor_log_stats()
+    meter['filesystem']['meterAppBacklog'] = get_sensor_log_stats('/var/spool/redaptive')
 
-    meter['networking']['mac_eth0'] = get_mac()
-    meter['networking']['ip_addr_eth0'] = get_ip_address('eth0')
-    meter['networking']['ip_addr_ppp0'] = get_ip_address('ppp0')
-    meter['networking']['ip_addr_active'] = get_active_ip_address()
+    meter['networking']['eth0MacAddress'] = get_mac()
+    meter['networking']['eth0IoAddress'] = get_ip_address('eth0')
+    meter['networking']['ppp0IpAddress'] = get_ip_address('ppp0')
+    meter['networking']['ActiveIpAddress'] = get_active_ip_address()
     def_iface = get_def_route()[0]
-    meter['networking']['default_iface'] = def_iface[len(def_iface) - 1] if def_iface else None
-    meter['networking']['iccid'] = None
-    meter['networking']['apn'] = None
+    meter['networking']['defaultInterface'] = def_iface[len(def_iface) - 1] if def_iface else None
+    # radio_metadata = get_radio_metadata('ims2MetaData')
+    meter['networking']['iccid'] = None  # radio_metadata.get('iccid', '')
+    meter['networking']['apn'] = None  # radio_metadata.get('apn', '')
     sig_info = get_signal_str()
-    meter['networking']['sig_str'] = sig_info[1] if sig_info else None
-    meter['networking']['sig_qual'] = sig_info[2] if sig_info else None
-    meter['networking']['cell_band'] = sig_info[3] if sig_info and len(sig_info) >= 4 else None
-    meter['networking']['cell_tac'] = sig_info[4] if sig_info and len(sig_info) >= 5 else None
-    meter['networking']['packet_loss'] = get_packet_loss(meter['networking']['ip_addr_active'])
-    meter['networking']['network_errors'] = None
+    meter['networking']['signalStrength'] = sig_info[1] if sig_info else None
+    meter['networking']['signalQuality'] = sig_info[2] if sig_info else None
+    meter['networking']['cellBand'] = sig_info[3] if sig_info and len(sig_info) >= 4 else None
+    meter['networking']['cellTac'] = sig_info[4] if sig_info and len(sig_info) >= 5 else None
+    meter['networking']['packetLoss'] = get_packet_loss(meter['networking']['ActiveIpAddress'])
 
-    ''' !!! WE NEED TO ADD PID's FOR IMPORTANT PROCESSES, SO WE CAN FLAG HIGH PID COUNTS. !!!'''
-    meter['software']['redrock_os'] = get_os_version()
-    meter['software']['u-boot'] = get_uboot_version()
+
+    # !!! Maybe this should be all network statistics for both eth0 and ppp0 (if it exists).  Maybe turn everything in
+    # /sys/devices/virtual/net/<interface>/statistics/  into a dictionary, i.e. filename: file_contents
+    # meter['networking']['networkErrors'] = None
+    meter['networking']['statistics']['eth0'] = get_net_stats('eth0')
+    meter['networking']['statistics']['ppp0'] = get_net_stats('ppp0')
+
+    meter['software']['os'] = get_os_version()
+    meter['software']['uBoot'] = get_uboot_version()
     meter['software']['kernel'] = get_kernel_version()
     meter['software']['stm32'] = get_software_version('stm32')
 
-    meter['software']['meterApp']['ver'] = get_software_version('meter_app')
+    meter['software']['meterApp']['version'] = get_software_version('meter_app')
     meter['software']['meterApp']['pid'] = get_process_info('meter_app')[0]
 
-    meter['software']['rdAccum']['ver'] = get_software_version('RD_Accum')
+    meter['software']['rdAccum']['version'] = get_software_version('RD_Accum')
     meter['software']['rdAccum']['pid'] = get_process_info('RD_Accum')[0]
 
-    meter['software']['networkManager']['ver'] = get_software_checksum(get_process_info('network-manager')[1])[0]
+    meter['software']['networkManager']['version'] = get_software_checksum(get_process_info('network-manager')[1])[0]
     meter['software']['networkManager']['pid'] = get_process_info('network-manager')[0]
 
-    meter['software']['uploadManager']['ver'] = get_software_checksum(importlib.util.find_spec('rdp_upman.uploader').origin)[0]
+    meter['software']['uploadManager']['version'] = get_software_checksum(importlib.util.find_spec('rdp_upman.uploader').origin)[0]
     meter['software']['uploadManager']['pid'] = get_process_info('rdp_upman.uploader')[0]
 
-    meter['software']['ledController']['ver'] = get_software_checksum(get_process_info('led_controller')[1])[0]
+    meter['software']['ledController']['version'] = get_software_checksum(get_process_info('led_controller')[1])[0]
     meter['software']['ledController']['pid'] = get_process_info('led_controller')[0]
 
-    meter['software']['ims2CmdInterface']['ver'] = get_software_version('ims2-cmd-interface')
+    meter['software']['ims2CmdInterface']['version'] = get_software_version('ims2-cmd-interface')
     meter['software']['ims2CmdInterface']['pid'] = get_process_info('ims2_cmd_interface')[0]
 
-    meter['software']['mender']['ver'] = get_software_version('mender')
+    meter['software']['mender']['version'] = get_software_version('mender')
     meter['software']['mender']['pid'] = get_process_info('mender')[0]
 
     # Json to standard out.
