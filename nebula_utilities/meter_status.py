@@ -1,6 +1,7 @@
 import importlib.util
 from collections import namedtuple
 from datetime import datetime
+from collections.abc import Mapping
 import os
 from sys import stdout as sys_stdout
 import re
@@ -383,7 +384,7 @@ def get_os_version():
         return os_version.replace('\n', "")
 
 
-def get_signal_str(path = '/var/spool/redaptive'):
+def get_signal_str(path='/var/spool/redaptive'):
     file_list = list_files(path, 'ss')
     try:
         latest = sorted(file_list).pop()
@@ -611,6 +612,8 @@ if __name__ == '__main__':
     '''
     # Grab the subset of meter meta data provided on the filesystem by the RD_accum application.
     rd_accum_metadata = read_run_file('meterMetaData.json')
+    # Grab IMS2 metadata provided on the filesystem by the ims2_cmd_interface service.
+    ims2_metadata = read_run_file('ims2-metadata.json')
 
     meter = {
         'macAddress': get_mac(),
@@ -649,21 +652,20 @@ if __name__ == '__main__':
     meter['filesystem']['meterAppBacklog'] = get_sensor_log_stats('/var/spool/redaptive')
 
     meter['networking']['eth0MacAddress'] = get_mac()
-    meter['networking']['eth0IoAddress'] = get_ip_address('eth0')
+    meter['networking']['eth0IpAddress'] = get_ip_address('eth0')
     meter['networking']['ppp0IpAddress'] = get_ip_address('ppp0')
     meter['networking']['ActiveIpAddress'] = get_active_ip_address()
     def_iface = get_def_route()[0]
     meter['networking']['defaultInterface'] = def_iface[len(def_iface) - 1] if def_iface else None
     # radio_metadata = get_radio_metadata('ims2MetaData')
-    meter['networking']['iccid'] = None  # radio_metadata.get('iccid', '')
-    meter['networking']['apn'] = None  # radio_metadata.get('apn', '')
+    meter['networking']['iccid'] = ims2_metadata.get('iccid', '') if isinstance(ims2_metadata, Mapping) else None
+    meter['networking']['apn'] = ims2_metadata.get('apn', '') if isinstance(ims2_metadata, Mapping) else None
     sig_info = get_signal_str()
     meter['networking']['signalStrength'] = sig_info[1] if sig_info else None
     meter['networking']['signalQuality'] = sig_info[2] if sig_info else None
     meter['networking']['cellBand'] = sig_info[3] if sig_info and len(sig_info) >= 4 else None
     meter['networking']['cellTac'] = sig_info[4] if sig_info and len(sig_info) >= 5 else None
     meter['networking']['packetLoss'] = get_packet_loss(meter['networking']['ActiveIpAddress'])
-
 
     # !!! Maybe this should be all network statistics for both eth0 and ppp0 (if it exists).  Maybe turn everything in
     # /sys/devices/virtual/net/<interface>/statistics/  into a dictionary, i.e. filename: file_contents
@@ -680,6 +682,7 @@ if __name__ == '__main__':
     meter['software']['meterApp']['pid'] = get_process_info('meter_app')[0]
 
     meter['software']['rdAccum']['version'] = get_software_version('RD_Accum')
+    meter['software']['rdAccum']['packetHeader'] = rd_accum_metadata.get('PKT Ver', '') if rd_accum_metadata else None
     meter['software']['rdAccum']['pid'] = get_process_info('RD_Accum')[0]
 
     meter['software']['networkManager']['version'] = get_software_checksum(get_process_info('network-manager')[1])[0]
