@@ -17,6 +17,8 @@ from json import load
 import pathlib
 import csv
 
+__version__ = '0.0.3'
+
 
 def read_run_file(name, path='/run/'):
     try:
